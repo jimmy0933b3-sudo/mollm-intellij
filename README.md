@@ -40,9 +40,12 @@ MoLLM 現在支援透過 [MCP (Model Context Protocol)](https://modelcontextprot
 
 | Secret 名稱 | 內容 |
 | --- | --- |
-| `PRIVATE_KEY` | 外掛簽章用 RSA private PEM（可直接貼多行 PEM，或貼 Base64 編碼的 PEM） |
-| `CERTIFICATE_CHAIN` | 與 private key 相符的 X.509 certificate chain PEM（可直接貼多行 PEM，或 Base64 編碼） |
-| `PRIVATE_KEY_PASSWORD` | private key 密碼，供 JetBrains Marketplace ZIP Signer 使用 |
+| `KEYSTORE_BASE64` | 已有 Android Release KeyStore（JKS/PKCS12）檔案的 Base64 內容；可用 `ANDROID_KEYSTORE_BASE64` |
+| `KEYSTORE_PASSWORD` | KeyStore 的密碼；可用 `ANDROID_KEYSTORE_PASSWORD` |
+| `KEY_ALIAS` | KeyStore 私鑰的 alias；可用 `ANDROID_KEY_ALIAS` |
+| `KEY_PASSWORD` | 私鑰密碼，可與 KeyStore 密碼不同；可用 `ANDROID_KEY_PASSWORD` |
+
+**現在預設直接支援其他專案同一組四個 KeyStore Secrets。** 建置時從 KeyStore 取出簽章私鑰及 X.509 憑證，在 Runner 暫存目錄轉成 PKCS12 後簽署 ZIP，並驗證簽章；不會把密鑰放進 Release。若已使用 PEM，也可改用 `PRIVATE_KEY`、`CERTIFICATE_CHAIN`，加密 PEM 才需要 `PRIVATE_KEY_PASSWORD`。若兩組都有設定，優先使用 KeyStore。
 
 CI 使用 GitHub Actions 內建的 `GITHUB_TOKEN` 建立 Release，不需要另外建立 GitHub PAT。請確認 Actions 允許執行工作流程，且所使用的簽章 Secrets 都已設定。master 建置若缺任一 Secret **直接失敗**，不會偷偷發布未簽章版本。
 
