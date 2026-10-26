@@ -6,8 +6,6 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.WebFluxSseClientTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
-import io.modelcontextprotocol.json.McpJsonDefaults;
-import io.modelcontextprotocol.json.McpJsonMapper;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
@@ -21,7 +19,6 @@ import java.util.stream.Collectors;
 
 final class McpConnectionManager {
     private static final Map<String, McpSyncClient> clients = new ConcurrentHashMap<>();
-    private static final McpJsonMapper jsonMapper = McpJsonDefaults.getMapper();
 
     static void initialize(Project project) {
         // Called when project opens or settings change.
@@ -51,10 +48,6 @@ final class McpConnectionManager {
             if ("stdio".equals(config.transport)) {
                 var builder = ServerParameters.builder(config.executable)
                         .args(config.args.toArray(new String[0]));
-                if (!config.workingDirectory.isBlank()) {
-                    builder.workingDirectory(config.workingDirectory);
-                }
-
                 Map<String, String> resolvedEnv = new HashMap<>(config.env);
                 for (Map.Entry<String, String> entry : resolvedEnv.entrySet()) {
                     if ("__SECRET__".equals(entry.getValue())) {
@@ -65,7 +58,18 @@ final class McpConnectionManager {
                 if (!resolvedEnv.isEmpty()) {
                     builder.env(resolvedEnv);
                 }
-                var transport = new StdioClientTransport(builder.build(), jsonMapper);
+                // MCP Java SDK 0.7 does not expose workingDirectory on ServerParameters.
+                // Configure the underlying process instead, preserving the user's stdio cwd.
+                var transport = new StdioClientTransport(builder.build()) {
+                    @Override
+                    protected ProcessBuilder getProcessBuilder() {
+                        ProcessBuilder process = super.getProcessBuilder();
+                        if (!config.workingDirectory.isBlank()) {
+                            process.directory(new java.io.File(config.workingDirectory));
+                        }
+                        return process;
+                    }
+                };
                 client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(config.requestTimeoutSeconds)).build();
             } else if ("sse".equals(config.transport)) {
                 var webClientBuilder = WebClient.builder().baseUrl(config.baseUrl);

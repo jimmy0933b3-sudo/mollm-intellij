@@ -214,7 +214,7 @@ final class AgentLoop {
                             try {
                                 if (mcpTool.inputSchema() != null) {
                                     // Assuming inputSchema is serializable to JSON/map
-                                    String schemaStr = io.modelcontextprotocol.json.McpJsonDefaults.getMapper().writeValueAsString(mcpTool.inputSchema());
+                                    String schemaStr = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(mcpTool.inputSchema());
                                     function.add("parameters", JsonParser.parseString(schemaStr));
                                 } else {
                                     var emptyParams = new JsonObject();
