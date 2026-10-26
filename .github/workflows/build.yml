@@ -1,86 +1,119 @@
-name: Build Plugin
+name: Build and Release Plugin
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: plugin-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      zip_name: ${{ steps.metadata.outputs.zip_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '21'
+          cache: gradle
 
-      - name: Extract IntelliJ minimum build
-        id: min_build
+      - name: Read and validate plugin metadata
+        id: metadata
+        shell: bash
         run: |
-          MIN_BUILD=$(grep -oP 'since-build="\K[^"]+' src/main/resources/META-INF/plugin.xml | head -n 1)
-          echo "MIN_BUILD=$MIN_BUILD" >> $GITHUB_ENV
-          echo "min_build=$MIN_BUILD" >> $GITHUB_OUTPUT
+          set -Eeuo pipefail
+          version="$(sed -n "s/^version = '\([^']*\)'/\1/p" build.gradle | head -n 1)"
+          manifest_version="$(sed -n 's/.*<version>\([^<]*\)<\/version>.*/\1/p' src/main/resources/META-INF/plugin.xml | head -n 1)"
+          minimum_build="$(sed -n 's/.*since-build="\([^"]*\)".*/\1/p' src/main/resources/META-INF/plugin.xml | head -n 1)"
+          [[ -n "$version" && "$version" == "$manifest_version" && -n "$minimum_build" ]] || {
+            echo 'Plugin version mismatch between build.gradle and plugin.xml, or missing minimum build' >&2
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "zip_name=mollm-intellij-${version}.zip" >> "$GITHUB_OUTPUT"
+          echo "minimum_build=$minimum_build" >> "$GITHUB_OUTPUT"
 
-      - name: Setup IntelliJ Platform IDE
+      - name: Setup IntelliJ Platform SDK
         id: setup-ide
         uses: JetBrains/intellij-platform-installation-action@v1.1
         with:
           ide: IntelliJ IDEA Community Edition
-          version: ${{ env.MIN_BUILD }}
+          version: ${{ steps.metadata.outputs.minimum_build }}
 
-      - name: Build Plugin
-        run: ./gradlew clean check buildPlugin -PideaHome=${{ steps.setup-ide.outputs.idea-home }}
+      - name: Compile, test and package IntelliJ plugin
+        run: ./gradlew --no-daemon clean check buildPlugin -PideaHome="${{ steps.setup-ide.outputs.idea-home }}"
 
-      - name: Generate Plugin ZIP Checksum
+      - name: Sign plugin ZIP using Actions Secrets
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+        run: bash .github/scripts/sign_plugin.sh 'build/distributions/${{ steps.metadata.outputs.zip_name }}'
+
+      - name: Verify archive and generate SHA-256
+        shell: bash
         run: |
-          VERSION=$(grep -oP "^version = '\K[^']+" build.gradle)
-          ZIP_NAME="mollm-intellij-${VERSION}.zip"
+          set -Eeuo pipefail
           cd build/distributions
-          sha256sum ${ZIP_NAME} > ${ZIP_NAME}.sha256
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "SHA256=$(cat ${ZIP_NAME}.sha256)" >> $GITHUB_ENV
-          echo "COMMIT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
-          echo "IDE_PATH=${{ steps.setup-ide.outputs.idea-home }}" >> $GITHUB_ENV
+          archive='${{ steps.metadata.outputs.zip_name }}'
+          test -s "$archive"
+          unzip -tq "$archive" >/dev/null
+          sha256sum "$archive" > "$archive.sha256"
+          sha256sum --check "$archive.sha256"
 
-      - name: Upload Artifact
+      - name: Upload installable plugin
         uses: actions/upload-artifact@v4
         with:
-          name: mollm-intellij-${{ env.VERSION }}-${{ env.COMMIT_SHA }}
+          name: mollm-intellij-${{ steps.metadata.outputs.version }}-${{ github.run_number }}
           path: |
-            build/distributions/${{ env.ZIP_NAME }}
-            build/distributions/${{ env.ZIP_NAME }}.sha256
+            build/distributions/${{ steps.metadata.outputs.zip_name }}
+            build/distributions/${{ steps.metadata.outputs.zip_name }}.sha256
           if-no-files-found: error
+          retention-days: 7
 
-      - name: Write Job Summary
-        run: |
-          echo "## Build Successful! 🎉" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: ${{ env.COMMIT_SHA }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **JDK Version**: 21" >> $GITHUB_STEP_SUMMARY
-          echo "- **IntelliJ SDK Version**: ${{ env.MIN_BUILD }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Download and Install" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download the artifact ZIP below." >> $GITHUB_STEP_SUMMARY
-          echo "2. Unzip it to find \`${{ env.ZIP_NAME }}\`." >> $GITHUB_STEP_SUMMARY
-          echo "3. In IntelliJ IDEA, go to **Settings > Plugins > ⚙️ > Install Plugin from Disk...**" >> $GITHUB_STEP_SUMMARY
-          echo "4. Select \`${{ env.ZIP_NAME }}\`." >> $GITHUB_STEP_SUMMARY
-
-      - name: Create Pre-release
-        if: github.ref == 'refs/heads/master' && success()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.VERSION }}
-          name: v${{ env.VERSION }}
-          prerelease: true
-          files: |
-            build/distributions/${{ env.ZIP_NAME }}
-            build/distributions/${{ env.ZIP_NAME }}.sha256
+      - name: Build summary
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PLUGIN_VERSION: ${{ steps.metadata.outputs.version }}
+          ZIP_NAME: ${{ steps.metadata.outputs.zip_name }}
+        run: |
+          echo "## MoLLM IntelliJ v${PLUGIN_VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "ZIP: \`${ZIP_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Install via IntelliJ Settings > Plugins > ⚙ > Install Plugin from Disk.' >> "$GITHUB_STEP_SUMMARY"
+          if [[ '${{ github.ref }}' == 'refs/heads/master' ]]; then
+            echo 'After publication: https://github.com/${{ github.repository }}/releases/latest' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release scripts
+        uses: actions/checkout@v4
+
+      - name: Download signed plugin
+        uses: actions/download-artifact@v4
+        with:
+          name: mollm-intellij-${{ needs.build.outputs.version }}-${{ github.run_number }}
+          path: dist
+
+      - name: Publish newest Release and remove old Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION: ${{ needs.build.outputs.version }}
+        run: bash .github/scripts/publish_latest_release.sh dist
