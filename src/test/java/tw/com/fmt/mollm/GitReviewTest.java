@@ -116,6 +116,8 @@ final class GitReviewTest {
             String mergeTree = setup(root, "rev-parse", head + "^{tree}").trim();
             String validMerge = setup(root, "commit-tree", mergeTree, "-p", base, "-p", head, "-m", "merge commit").trim();
             setup(root, "update-ref", "refs/merge-requests/5/head", head); setup(root, "update-ref", "refs/merge-requests/5/merge", validMerge);
+            // Dumb HTTP fixture serves info/refs; publish newly-created refs and objects.
+            setup(root, "update-server-info");
             String fetchedValid = git.execute("git_fetch_mr", args("{\"mr_number\":5}"), call);
             check(fetchedValid.contains("merge 參照已更新"), "MR merge ref is accepted when it actually has head as a parent");
 
