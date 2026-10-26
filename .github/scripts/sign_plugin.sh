@@ -54,5 +54,6 @@ java -jar "$signer" sign \
 
 test -s "$workdir/signed.zip"
 unzip -tq "$workdir/signed.zip" >/dev/null
+java -jar "$signer" verify -in "$workdir/signed.zip" -cert "$workdir/chain.crt"
 mv "$workdir/signed.zip" "$archive"
 echo 'JetBrains plugin ZIP signed with Actions Secrets.'
