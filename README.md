@@ -28,10 +28,10 @@ MoLLM 現在支援透過 [MCP (Model Context Protocol)](https://modelcontextprot
 
 ## GitHub Actions 建置、簽章與 Release
 
-* 推送到 **master** 或手動執行 Actions 的 **Build and Release Plugin**：建置、執行 \`check\`、打包 ZIP、以 GitHub Actions Secrets 簽章，成功後建立最新 Release。
+* 推送到 **master** 或手動執行 Actions 的 **Build and Release Plugin**：建置、執行 `check`、打包 ZIP、以 GitHub Actions Secrets 簽章，成功後建立最新 Release。
 * Pull Request：執行相同的編譯與測試並提供**未簽章**的 Actions Artifact，不使用簽章 Secrets，也不建立 Release。
-* 每次發布使用獨立的 \`ci-<run>-<attempt>-<sha>\` 標籤。確認 ZIP、SHA-256 與新 Release 上傳成功後，刪除其餘舊 Releases；只刪除由此 CI 產生的舊標籤，不刪除手動維護的版本標籤。
-* 最新可安裝檔：<https://github.com/jimmy0933b3-sudo/mollm-intellij/releases/latest>。下載 \`mollm-intellij-<version>.zip\`，在 IntelliJ IDEA 中選擇 **Settings → Plugins → ⚙ → Install Plugin from Disk**。直接選擇外掛 ZIP，不用自行解壓。
+* 每次發布使用獨立的 `ci-<run>-<attempt>-<sha>` 標籤。確認 ZIP、SHA-256 與新 Release 上傳成功後，刪除其餘舊 Releases；只刪除由此 CI 產生的舊標籤，不刪除手動維護的版本標籤。
+* 最新可安裝檔：<https://github.com/jimmy0933b3-sudo/mollm-intellij/releases/latest>。下載 `mollm-intellij-<version>.zip`，在 IntelliJ IDEA 中選擇 **Settings → Plugins → ⚙ → Install Plugin from Disk**。直接選擇外掛 ZIP，不用自行解壓。
 * 只有完整編譯、測試、簽章及發版成功才會清除舊 Release；失敗時保留上一個可下載版本。
 
 ### 必填 Repository Actions Secrets
@@ -40,10 +40,10 @@ MoLLM 現在支援透過 [MCP (Model Context Protocol)](https://modelcontextprot
 
 | Secret 名稱 | 內容 |
 | --- | --- |
-| \`PRIVATE_KEY\` | 外掛簽章用 RSA private PEM（可直接貼多行 PEM，或貼 Base64 編碼的 PEM） |
-| \`CERTIFICATE_CHAIN\` | 與 private key 相符的 X.509 certificate chain PEM（可直接貼多行 PEM，或 Base64 編碼） |
-| \`PRIVATE_KEY_PASSWORD\` | private key 密碼，供 JetBrains Marketplace ZIP Signer 使用 |
+| `PRIVATE_KEY` | 外掛簽章用 RSA private PEM（可直接貼多行 PEM，或貼 Base64 編碼的 PEM） |
+| `CERTIFICATE_CHAIN` | 與 private key 相符的 X.509 certificate chain PEM（可直接貼多行 PEM，或 Base64 編碼） |
+| `PRIVATE_KEY_PASSWORD` | private key 密碼，供 JetBrains Marketplace ZIP Signer 使用 |
 
-CI 使用 GitHub Actions 內建的 \`GITHUB_TOKEN\` 建立 Release，不需要另外建立 GitHub PAT。請確認 Actions 允許執行工作流程，且所使用的簽章 Secrets 都已設定。master 建置若缺任一 Secret **直接失敗**，不會偷偷發布未簽章版本。
+CI 使用 GitHub Actions 內建的 `GITHUB_TOKEN` 建立 Release，不需要另外建立 GitHub PAT。請確認 Actions 允許執行工作流程，且所使用的簽章 Secrets 都已設定。master 建置若缺任一 Secret **直接失敗**，不會偷偷發布未簽章版本。
 
 簽章遵循 [JetBrains Plugin Signing](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html)，使用固定版本、SHA-256 驗證過的 Marketplace ZIP Signer。機密資料只在 CI 中以暫存檔使用，不會寫入原始碼或發行附件。使用自簽憑證的外掛仍可能需要在 IntelliJ **Manage Plugin Certificates** 中信任該憑證；GitHub Releases 不等同於 JetBrains Marketplace 自動更新。
