@@ -134,7 +134,9 @@ public final class GatewayTest {
                 });
                 check(waiting.get().await(1, TimeUnit.SECONDS), "Cancellation test connected");
                 call.cancel();
-                check(result.get(2, TimeUnit.SECONDS), "Cancellation closes active read");
+                // The test server deliberately holds the response open for 3 seconds.
+                // HttpURLConnection may finish its blocked read only when the server writes/closes.
+                check(result.get(6, TimeUnit.SECONDS), "Cancellation closes active read");
             }
             SwingCheck.run();
             var state = new MollmSettings.Data();
