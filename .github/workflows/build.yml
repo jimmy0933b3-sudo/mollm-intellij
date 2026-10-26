@@ -30,10 +30,22 @@ jobs:
           cache: gradle
 
       - name: Install CJK fonts for Swing UI tests
+        timeout-minutes: 3
+        shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
-          fc-cache -f
+          set -Eeuo pipefail
+          font_dir="$HOME/.local/share/fonts"
+          mkdir -p "$font_dir"
+          font="$font_dir/NotoSansCJKtc-Regular.otf"
+          curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
+            'https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf' \
+            --output "$font"
+          expected_blob='f9376bae1d421520f73a3c6c9d50b22f89548301'
+          [[ "$(git hash-object "$font")" == "$expected_blob" ]] || {
+            echo 'Unexpected CJK font checksum' >&2
+            exit 1
+          }
+          fc-cache -f "$font_dir"
           fc-match 'sans:lang=zh-tw'
 
       - name: Read and validate plugin metadata
