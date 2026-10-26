@@ -29,6 +29,13 @@ jobs:
           java-version: '21'
           cache: gradle
 
+      - name: Install CJK fonts for Swing UI tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-cache -f
+          fc-match 'sans:lang=zh-tw'
+
       - name: Read and validate plugin metadata
         id: metadata
         shell: bash
