@@ -45,12 +45,33 @@ jobs:
           echo "zip_name=mollm-intellij-${version}.zip" >> "$GITHUB_OUTPUT"
           echo "minimum_build=$minimum_build" >> "$GITHUB_OUTPUT"
 
-      - name: Setup IntelliJ Platform SDK
+      - name: Download IntelliJ IDEA 2025.2 SDK
         id: setup-ide
-        uses: JetBrains/intellij-platform-installation-action@v1.1
-        with:
-          ide: IntelliJ IDEA Community Edition
-          version: ${{ steps.metadata.outputs.minimum_build }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version='2025.2.6.3'
+          url="https://download.jetbrains.com/idea/ideaIC-${version}.tar.gz"
+          archive="$RUNNER_TEMP/ideaIC-${version}.tar.gz"
+          curl --fail --location --retry 4 --retry-all-errors --silent --show-error "$url" --output "$archive"
+          curl --fail --location --retry 4 --silent --show-error "${url}.sha256" --output "${archive}.sha256"
+          checksum="$(awk 'NR==1 {print $1}' "${archive}.sha256")"
+          [[ "$checksum" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo 'Invalid JetBrains SDK checksum' >&2; exit 1; }
+          printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/idea-sdk"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/idea-sdk"
+          sdk_build_file="$(find "$RUNNER_TEMP/idea-sdk" -maxdepth 3 -type f -name build.txt -print -quit)"
+          [[ -n "$sdk_build_file" ]] || { echo 'IntelliJ SDK build.txt not found' >&2; exit 1; }
+          ide_home="$(dirname "$sdk_build_file")"
+          sdk_build="$(cat "$sdk_build_file")"
+          expected_major="${{ steps.metadata.outputs.minimum_build }}"
+          expected_major="${expected_major%%.*}"
+          [[ "${sdk_build#*-}" == "${expected_major}."* ]] || {
+            echo "IntelliJ SDK $sdk_build is incompatible with required major $expected_major" >&2
+            exit 1
+          }
+          echo "idea-home=$ide_home" >> "$GITHUB_OUTPUT"
+          echo "IntelliJ SDK: $sdk_build (home: $ide_home)"
 
       - name: Compile, test and package IntelliJ plugin
         run: ./gradlew --no-daemon clean check buildPlugin -PideaHome="${{ steps.setup-ide.outputs.idea-home }}"
