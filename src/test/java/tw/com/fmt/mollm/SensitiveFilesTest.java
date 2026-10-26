@@ -93,7 +93,7 @@ final class SensitiveFilesTest {
             var legacy = new WorkspaceTools(root, access, allow, SensitiveFiles.disabled());
             check(legacy.execute("read_file", args("{\"path\":\".env\"}"), call).contains("fixture-password-987"), "Disabling protection restores file access");
             var relaxed = new WorkspaceTools(root, access, allow, new SensitiveFiles(true, false, SensitiveFiles.DEFAULT_PATTERNS));
-            var command = new JsonObject(); command.addProperty("executable", Path.of(System.getProperty("java.home"), "bin", "java.exe").toString());
+            var command = new JsonObject(); command.addProperty("executable", Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "java.exe" : "java").toString());
             var argv = new com.google.gson.JsonArray(); argv.add("-cp"); argv.add(System.getProperty("java.class.path")); argv.add(Probe.class.getName()); command.add("arguments", argv);
             String output = relaxed.execute("run_command", command, call);
             check(output.contains("Exit code: 0") && output.contains("[REDACTED]") && !output.contains("fixture-password-987") && !output.contains("Zml4dHVyZS"), "Relaxed command output redacts recognizable secrets before model/UI result");

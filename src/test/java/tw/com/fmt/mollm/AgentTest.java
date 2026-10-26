@@ -146,7 +146,7 @@ public final class AgentTest {
 
     private static JsonObject probeCommand(String mode) {
         var command = new JsonObject();
-        command.addProperty("executable", Path.of(System.getProperty("java.home"), "bin", "java.exe").toString());
+        command.addProperty("executable", Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "java.exe" : "java").toString());
         var argv = new JsonArray(); argv.add("-cp"); argv.add(System.getProperty("java.class.path"));
         argv.add(Probe.class.getName()); argv.add(mode); command.add("arguments", argv); return command;
     }
