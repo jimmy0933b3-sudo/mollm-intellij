@@ -82,6 +82,7 @@ final class SensitiveFiles {
 
         // References to environment variables are not literal secrets.
         if (normalized.startsWith("${") || normalized.startsWith("$env:")) return false;
+        if (normalized.matches("(?i)^process\\.env\\.[a-z_][a-z0-9_]*$")) return false;
         if (isQuoted) return true;
 
         // Unquoted expressions (e.g. method calls or variable references) are not literal secrets.
