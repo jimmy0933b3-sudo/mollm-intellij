@@ -34,6 +34,10 @@ MoLLM 現在支援透過 [MCP (Model Context Protocol)](https://modelcontextprot
 * 最新可安裝檔：<https://github.com/jimmy0933b3-sudo/mollm-intellij/releases/latest>。下載 `mollm-intellij-<version>.zip`，在 IntelliJ IDEA 中選擇 **Settings → Plugins → ⚙ → Install Plugin from Disk**。直接選擇外掛 ZIP，不用自行解壓。
 * 只有完整編譯、測試、簽章及發版成功才會清除舊 Release；失敗時保留上一個可下載版本。
 
+### Agent 權限管理與「永遠允許」
+
+在檔案修改、指令與 MCP 工具的確認視窗，可以選擇「允許」一次或「永遠允許」。對於 **MCP 工具**，「永遠允許此 MCP 工具」僅授權目前 Agent 工作目錄、指定 MCP 伺服器 ID 與指定工具；即使下次工具參數不同也會自動允許，請只對信任的工具使用。調整 MCP 伺服器連線設定後，原有授權將失效並再次詢問。**GitLab MR 網路取得**仍需每次確認，不會被一般指令或 MCP 永久授權覆蓋。可在 **MoLLM → 設定 → Agent 權限管理 → MCP 工具** 檢視與撤銷，重新啟動 IDE 後授權仍會保留。
+
 ### 必填 Repository Actions Secrets
 
 到 **Settings → Secrets and variables → Actions → New repository secret** 設定：

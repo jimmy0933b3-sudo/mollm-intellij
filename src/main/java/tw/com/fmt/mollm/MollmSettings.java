@@ -33,6 +33,7 @@ public final class MollmSettings implements PersistentStateComponent<MollmSettin
         public boolean sensitiveStrictCommands = true;
         public List<String> sensitiveFilePatterns = new ArrayList<>(SensitiveFiles.DEFAULT_PATTERNS);
         public List<DirectoryGrant> directoryGrants = new ArrayList<>();
+        public List<McpToolGrant> mcpToolGrants = new ArrayList<>();
         public List<McpServerConfig> mcpServers = new ArrayList<>();
     }
 
@@ -40,6 +41,14 @@ public final class MollmSettings implements PersistentStateComponent<MollmSettin
         public String directory = "";
         public boolean allowFiles;
         public boolean allowCommands;
+    }
+
+    /** Explicit "always allow" grant for one MCP tool in one workspace/server identity. */
+    public static final class McpToolGrant {
+        public String directory = "";
+        public String serverId = "";
+        public String toolName = "";
+        public String serverFingerprint = "";
     }
 
     // Mutable beans are required by IntelliJ's XML state serializer. Never store keys here.

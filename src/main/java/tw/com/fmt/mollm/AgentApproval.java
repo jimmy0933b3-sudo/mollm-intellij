@@ -38,11 +38,12 @@ final class AgentApproval implements WorkspaceTools.Approval {
         if (permissions.allows(root, command.directory(), DirectoryPermissions.Kind.COMMANDS)) return true;
         return review(null, command, cancellation);
     }
-    @Override public boolean mcpTool(String serverName, String toolName, String args, Gateway.Call cancellation) throws Exception {
+    @Override public boolean mcpTool(MollmSettings.McpServerConfig server, String toolName, String args, Gateway.Call cancellation) throws Exception {
         AgentLoop.checkCancelled(cancellation);
-        if (project.isDisposed()) return false;
-        var command = new WorkspaceTools.Command(java.util.List.of(serverName, toolName, args), root, 60);
-        return reviewMcp(command, cancellation, true);
+        if (project.isDisposed() || server == null || !server.enabled) return false;
+        if (permissions.allowsMcp(root, server, toolName)) return true;
+        var command = new WorkspaceTools.Command(java.util.List.of(server.name, toolName, args), root, 60);
+        return reviewMcp(command, cancellation, server);
     }
     private boolean review(WorkspaceTools.Change change, WorkspaceTools.Command command, Gateway.Call cancellation) throws Exception {
         return review(change, command, cancellation, true);
@@ -58,7 +59,7 @@ final class AgentApproval implements WorkspaceTools.Approval {
         ApplicationManager.getApplication().invokeLater(() -> {
             if (project.isDisposed() || cancellation.cancelled()) { decision.complete(false); return; }
             try {
-                var value = new ReviewDialog(project, root, permissions, change, command, cancellation, decision, remember, false);
+                var value = new ReviewDialog(project, root, permissions, change, command, cancellation, decision, remember, null);
                 dialog.set(value); value.show();
             } catch (Exception e) { decision.completeExceptionally(e); }
         }, ModalityState.nonModal());
@@ -77,13 +78,13 @@ final class AgentApproval implements WorkspaceTools.Approval {
             }, ModalityState.any());
         }
     }
-    private boolean reviewMcp(WorkspaceTools.Command command, Gateway.Call cancellation, boolean remember) throws Exception {
+    private boolean reviewMcp(WorkspaceTools.Command command, Gateway.Call cancellation, MollmSettings.McpServerConfig server) throws Exception {
         var decision = new CompletableFuture<Boolean>();
         var dialog = new AtomicReference<ReviewDialog>();
         ApplicationManager.getApplication().invokeLater(() -> {
             if (project.isDisposed() || cancellation.cancelled()) { decision.complete(false); return; }
             try {
-                var value = new ReviewDialog(project, root, permissions, null, command, cancellation, decision, remember, true);
+                var value = new ReviewDialog(project, root, permissions, null, command, cancellation, decision, true, server);
                 dialog.set(value); value.show();
             } catch (Exception e) { decision.completeExceptionally(e); }
         }, ModalityState.nonModal());
@@ -113,25 +114,30 @@ final class AgentApproval implements WorkspaceTools.Approval {
         private final Gateway.Call cancellation;
         private final boolean remember;
         private boolean closed;
-        private boolean isMcp;
+        private final boolean isMcp;
+        private final MollmSettings.McpServerConfig mcpServer;
 
-        ReviewDialog(Project project, java.nio.file.Path root, DirectoryPermissions permissions, WorkspaceTools.Change change, WorkspaceTools.Command command, Gateway.Call cancellation, CompletableFuture<Boolean> decision, boolean remember, boolean isMcp) {
+        ReviewDialog(Project project, java.nio.file.Path root, DirectoryPermissions permissions, WorkspaceTools.Change change, WorkspaceTools.Command command, Gateway.Call cancellation, CompletableFuture<Boolean> decision, boolean remember, MollmSettings.McpServerConfig mcpServer) {
             super(project, false);
             this.project = project; this.change = change; this.command = command; this.decision = decision;
             this.root = root; this.permissions = permissions; this.cancellation = cancellation;
-            this.remember = remember; this.isMcp = isMcp;
+            this.remember = remember; this.mcpServer = mcpServer; this.isMcp = mcpServer != null;
             setModal(false); setTitle(isMcp ? "MoLLM Agent — 確認 MCP 工具執行" : (change == null ? "MoLLM Agent — 確認指令" : "MoLLM Agent — 確認檔案修改"));
             if (!remember && !isMcp) setTitle("MoLLM Agent — 取得 GitLab MR 更新");
             setOKButtonText("允許"); setCancelButtonText("拒絕"); init();
         }
 
         @Override protected Action[] createActions() {
-            if (!remember || isMcp) return new Action[]{getOKAction(), getCancelAction()};
-            var always = new DialogWrapperAction("此工作目錄下永遠允許") {
+            if (!remember) return new Action[]{getOKAction(), getCancelAction()};
+            var always = new DialogWrapperAction(isMcp ? "永遠允許此 MCP 工具" : "此工作目錄下永遠允許") {
                 @Override protected void doAction(java.awt.event.ActionEvent event) {
                     if (cancellation.cancelled() || project.isDisposed()) { doCancelAction(); return; }
                     try {
-                        permissions.allow(root, change == null ? DirectoryPermissions.Kind.COMMANDS : DirectoryPermissions.Kind.FILES);
+                        if (isMcp) {
+                            permissions.allowMcp(root, mcpServer, command.argv().get(1));
+                        } else {
+                            permissions.allow(root, change == null ? DirectoryPermissions.Kind.COMMANDS : DirectoryPermissions.Kind.FILES);
+                        }
                         decision.complete(true); close(OK_EXIT_CODE);
                     } catch (java.io.IOException e) { decision.completeExceptionally(e); close(CANCEL_EXIT_CODE); }
                 }
@@ -164,7 +170,11 @@ final class AgentApproval implements WorkspaceTools.Approval {
                     var notice = new JTextArea("MCP 工具可能會修改系統狀態或存取外部資源。\n請確認這項操作是安全的。");
                     notice.setEditable(false); notice.setLineWrap(true); notice.setWrapStyleWord(true);
                     panel.add(notice, BorderLayout.SOUTH);
-                    scope.setText("MCP 獨立授權：此工具執行不會繼承工作目錄的永久授權。");
+                    scope.setText("MCP 獨立授權：此工具不會繼承檔案／指令的永久授權。\n"
+                            + "「永遠允許此 MCP 工具」只適用目前工作目錄、此 MCP 伺服器與此工具名稱，"
+                            + "之後即使參數不同也不再詢問；伺服器連線設定變更須重新授權。\n"
+                            + "MCP 工具可能存取外部資源或修改資料，請謹慎確認。"
+                            + "\n可在 MoLLM 設定 → Agent 權限管理 → MCP 工具撤銷。");
                 } else {
                     var text = new JTextArea("工作目錄：" + command.directory() + "\n逾時：" + command.timeoutSeconds() + " 秒\n\n"
                             + "Executable:\n" + command.argv().getFirst() + "\n\nArguments (JSON):\n"

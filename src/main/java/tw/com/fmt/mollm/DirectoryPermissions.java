@@ -5,6 +5,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.TreeMap;
 
 /** Persistent opt-in permissions are isolated by canonical Agent working directory and tool kind. */
 final class DirectoryPermissions {
@@ -49,6 +54,92 @@ final class DirectoryPermissions {
             }
             settings.getState().directoryGrants = List.copyOf(updated);
         }
+    }
+
+    /**
+     * MCP auto-approval is deliberately narrower than directory command approval:
+     * one workspace, one server ID + connection fingerprint, and one exact tool name.
+     */
+    boolean allowsMcp(Path root, MollmSettings.McpServerConfig server, String toolName) {
+        if (server == null || !server.enabled || server.id == null || server.id.isBlank()
+                || toolName == null || toolName.isBlank()) return false;
+        try {
+            Path canonical = stableRoot(root);
+            String signature = mcpServerFingerprint(server);
+            for (var grant : mcpGrants()) {
+                if (grant != null && grant.serverId != null && grant.toolName != null
+                        && grant.serverFingerprint != null && grant.directory != null
+                        && server.id.equals(grant.serverId) && toolName.equals(grant.toolName)
+                        && signature.equals(grant.serverFingerprint)
+                        && samePath(grant.directory, canonical)) return true;
+            }
+        } catch (IOException | IllegalArgumentException ignored) { /* Fail closed if workspace changed. */ }
+        return false;
+    }
+
+    void allowMcp(Path root, MollmSettings.McpServerConfig server, String toolName) throws IOException {
+        if (server == null || !server.enabled || server.id == null || server.id.isBlank()
+                || toolName == null || toolName.isBlank()) throw new IOException("MCP 工具或伺服器無效。");
+        synchronized (settings) {
+            Path canonical = stableRoot(root);
+            var updated = new ArrayList<>(mcpGrants());
+            updated.removeIf(grant -> grant != null && samePath(grant.directory, canonical)
+                    && server.id.equals(grant.serverId) && toolName.equals(grant.toolName));
+            var grant = new MollmSettings.McpToolGrant();
+            grant.directory = canonical.toString();
+            grant.serverId = server.id;
+            grant.toolName = toolName;
+            grant.serverFingerprint = mcpServerFingerprint(server);
+            updated.add(grant);
+            settings.getState().mcpToolGrants = List.copyOf(updated);
+        }
+    }
+
+    List<MollmSettings.McpToolGrant> mcpGrants() {
+        synchronized (settings) {
+            var grants = settings.getState().mcpToolGrants;
+            return grants == null ? List.of() : List.copyOf(grants);
+        }
+    }
+
+    void revokeMcp(MollmSettings.McpToolGrant grant) {
+        synchronized (settings) {
+            settings.getState().mcpToolGrants = mcpGrants().stream()
+                    .filter(existing -> existing != grant && !(java.util.Objects.equals(existing.directory, grant.directory)
+                            && java.util.Objects.equals(existing.serverId, grant.serverId)
+                            && java.util.Objects.equals(existing.toolName, grant.toolName))).toList();
+        }
+    }
+
+    /** Hash connection settings without storing credentials in the permission grant. */
+    private static String mcpServerFingerprint(MollmSettings.McpServerConfig server) {
+        try {
+            var hash = MessageDigest.getInstance("SHA-256");
+            hashField(hash, server.transport);
+            hashField(hash, server.projectScope);
+            hashField(hash, server.executable);
+            hashField(hash, server.workingDirectory);
+            hashField(hash, server.baseUrl);
+            hashField(hash, Boolean.toString(server.passAuthToken));
+            hashField(hash, Integer.toString(server.args.size()));
+            for (String arg : server.args) hashField(hash, arg);
+            for (var entry : new TreeMap<>(server.env).entrySet()) {
+                hashField(hash, entry.getKey()); hashField(hash, entry.getValue());
+            }
+            for (var entry : new TreeMap<>(server.headers).entrySet()) {
+                hashField(hash, entry.getKey()); hashField(hash, entry.getValue());
+            }
+            return HexFormat.of().formatHex(hash.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private static void hashField(MessageDigest hash, String value) {
+        byte[] bytes = String.valueOf(value).getBytes(StandardCharsets.UTF_8);
+        hash.update(new byte[]{(byte) (bytes.length >>> 24), (byte) (bytes.length >>> 16),
+                (byte) (bytes.length >>> 8), (byte) bytes.length});
+        hash.update(bytes);
     }
 
     List<MollmSettings.DirectoryGrant> grants() {

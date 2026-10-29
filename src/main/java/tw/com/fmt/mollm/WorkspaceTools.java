@@ -38,7 +38,7 @@ final class WorkspaceTools implements AgentLoop.Tools {
     interface Approval {
         boolean change(Change change, Gateway.Call cancellation) throws Exception;
         boolean command(Command command, Gateway.Call cancellation) throws Exception;
-        default boolean mcpTool(String serverName, String toolName, String args, Gateway.Call cancellation) throws Exception { return command(new Command(java.util.List.of("MCP: " + serverName + " -> " + toolName, "args: " + args), Path.of("."), 60), cancellation); }
+        default boolean mcpTool(MollmSettings.McpServerConfig server, String toolName, String args, Gateway.Call cancellation) throws Exception { return command(new Command(java.util.List.of("MCP: " + server.name + " -> " + toolName, "args: " + args), Path.of("."), 60), cancellation); }
         default boolean gitFetch(Command command, Gateway.Call cancellation) throws Exception { return command(command, cancellation); }
     }
     private final Path root;
@@ -151,7 +151,7 @@ final class WorkspaceTools implements AgentLoop.Tools {
             if (client == null) throw new IOException("MCP Client not found");
 
             // Perform independent authorization for MCP tools
-            boolean approved = approval.mcpTool(targetConfig.name, toolName, args.toString(), cancellation);
+            boolean approved = approval.mcpTool(targetConfig, toolName, args.toString(), cancellation);
             if (!approved) return "Denied by user. Tool was not executed.";
 
             // Execute tool

@@ -57,6 +57,34 @@ final class PermissionTest {
         check(!permissions.allows(root, root, DirectoryPermissions.Kind.FILES) && permissions.allows(root, root, DirectoryPermissions.Kind.COMMANDS), "Settings can revoke files while keeping commands");
         permissions.set(root, false, false); check(permissions.grants().isEmpty(), "Unchecking both removes permanent permission");
         permissions.allow(root, DirectoryPermissions.Kind.FILES);
+        var mcp = new MollmSettings.McpServerConfig();
+        mcp.id = "permission-test-mcp";
+        mcp.name = "Test MCP";
+        mcp.transport = "stdio";
+        mcp.executable = "npx";
+        mcp.args = java.util.List.of("server-tool");
+        check(!permissions.allowsMcp(root, mcp, "read_resource"), "MCP tools require initial approval");
+        permissions.allowMcp(root, mcp, "read_resource");
+        check(permissions.allowsMcp(root, mcp, "read_resource"), "Always allow authorizes one MCP tool");
+        check(!permissions.allowsMcp(root, mcp, "delete_resource"), "Other MCP tools do not inherit grant");
+        check(!permissions.allowsMcp(sub, mcp, "read_resource"), "MCP grant is scoped to selected Agent workspace");
+        var anotherMcp = new MollmSettings.McpServerConfig();
+        anotherMcp.id = "another-mcp"; anotherMcp.transport = mcp.transport;
+        anotherMcp.executable = mcp.executable; anotherMcp.args = mcp.args;
+        check(!permissions.allowsMcp(root, anotherMcp, "read_resource"), "MCP server IDs cannot share grants");
+        mcp.baseUrl = "http://different-server";
+        check(!permissions.allowsMcp(root, mcp, "read_resource"), "Connection change invalidates saved grant");
+        mcp.baseUrl = "";
+        var persisted = com.intellij.util.xmlb.XmlSerializer.deserialize(com.intellij.util.xmlb.XmlSerializer.serialize(settings.getState()), MollmSettings.Data.class);
+        var reloadedMcp = new DirectoryPermissions(new MollmSettings());
+        var reloadedSettings = new MollmSettings(); reloadedSettings.loadState(persisted);
+        reloadedMcp = new DirectoryPermissions(reloadedSettings);
+        check(reloadedMcp.allowsMcp(root, mcp, "read_resource"), "MCP grants survive settings serialization");
+        reloadedMcp.revokeMcp(reloadedMcp.mcpGrants().getFirst());
+        check(!reloadedMcp.allowsMcp(root, mcp, "read_resource"), "MCP grants can be revoked");
+        mcp.enabled = false;
+        check(!permissions.allowsMcp(root, mcp, "read_resource"), "Disabled MCP server cannot auto approve");
+        permissions.revokeMcp(permissions.mcpGrants().getFirst());
         try (var call = new Gateway.Call()) {
             call.cancel();
             try { new WorkspaceTools(root, files, approval).execute("create_file", create("cancelled.txt"), call); throw new AssertionError("Cancelled write accepted"); }
